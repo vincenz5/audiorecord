@@ -172,7 +172,10 @@
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     
-                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder = new MediaRecorder(stream, {
+                        mimeType: 'audio/webm',
+                        audioBitsPerSecond: 128000
+                    });
                     audioChunks = [];
                     
                     mediaRecorder.addEventListener('dataavailable', event => {
@@ -180,7 +183,7 @@
                     });
                     
                     mediaRecorder.addEventListener('stop', () => {
-                        audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         const audioUrl = URL.createObjectURL(audioBlob);
                         
                         // Create audio element
