@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Voice Recorder</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+        #recordButton {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 20px 0;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background-color 0.3s;
+        }
+        #recordButton.recording {
+            background-color: #f44336;
+        }
+        #audioContainer {
+            margin: 20px 0;
+        }
+        #downloadLink {
+            display: none;
+            margin: 20px 0;
+            padding: 10px 20px;
+            background-color: #008CBA;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+        #statusIndicator {
+            height: 20px;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <h1>Simple Voice Recorder</h1>
+    <p>Click the button below to start/stop recording your voice</p>
+    
+    <div id="statusIndicator"></div>
+    
+    <button id="recordButton">Start Recording</button>
+    
+    <div id="audioContainer"></div>
+    
+    <a id="downloadLink" download="recording.wav">Download Recording</a>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const recordButton = document.getElementById('recordButton');
+            const audioContainer = document.getElementById('audioContainer');
+            const downloadLink = document.getElementById('downloadLink');
+            const statusIndicator = document.getElementById('statusIndicator');
+            
+            let mediaRecorder;
+            let audioChunks = [];
+            let isRecording = false;
+            
+            // Check if browser supports getUserMedia
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                statusIndicator.textContent = 'Audio recording is not supported in this browser';
+                recordButton.disabled = true;
+                return;
+            }
+            
+            recordButton.addEventListener('click', () => {
+                if (isRecording) {
+                    stopRecording();
+                } else {
+                    startRecording();
+                }
+            });
+            
+            async function startRecording() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    
+                    mediaRecorder.addEventListener('dataavailable', event => {
+                        audioChunks.push(event.data);
+                    });
+                    
+                    mediaRecorder.addEventListener('stop', () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        
+                        // Create audio element
+                        const audioElement = document.createElement('audio');
+                        audioElement.src = audioUrl;
+                        audioElement.controls = true;
+                        
+                        // Clear previous audio
+                        audioContainer.innerHTML = '';
+                        audioContainer.appendChild(audioElement);
+                        
+                        // Set up download link
+                        downloadLink.href = audioUrl;
+                        downloadLink.style.display = 'inline-block';
+                        
+                        // Close the stream tracks
+                        stream.getTracks().forEach(track => track.stop());
+                    });
+                    
+                    mediaRecorder.start();
+                    isRecording = true;
+                    recordButton.textContent = 'Stop Recording';
+                    recordButton.classList.add('recording');
+                    statusIndicator.textContent = 'Recording...';
+                    
+                } catch (error) {
+                    console.error('Error accessing microphone:', error);
+                    
+                    if (error.name === 'NotAllowedError') {
+                        statusIndicator.innerHTML = '<strong>Microphone access denied.</strong><br>Please check your browser settings to allow microphone access.<br>Look for the camera/microphone icon in your address bar.';
+                    } else if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                        statusIndicator.innerHTML = '<strong>Secure connection required.</strong><br>Microphone access requires HTTPS or localhost.<br>Try opening this file via a local server or HTTPS connection.';
+                    } else {
+                        statusIndicator.textContent = 'Error accessing microphone: ' + error.message;
+                    }
+                }
+            }
+            
+            function stopRecording() {
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                    isRecording = false;
+                    recordButton.textContent = 'Start Recording';
+                    recordButton.classList.remove('recording');
+                    statusIndicator.textContent = 'Recording stopped';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
