@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline - Voice Recorder with Claude</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+        .offline-icon {
+            font-size: 60px;
+            margin: 20px 0;
+        }
+        .message {
+            background-color: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .retry-button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 20px 0;
+            cursor: pointer;
+            border-radius: 8px;
+        }
+        .history-container {
+            margin-top: 30px;
+            text-align: left;
+        }
+        .history-item {
+            border-bottom: 1px solid #ddd;
+            padding: 15px 0;
+        }
+        .history-item:last-child {
+            border-bottom: none;
+        }
+        .history-timestamp {
+            color: #666;
+            font-size: 0.8em;
+            margin-bottom: 5px;
+        }
+        .history-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .history-content {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Voice Recorder with Claude</h1>
+    <div class="offline-icon">📶</div>
+    
+    <div class="message">
+        <h2>You're currently offline</h2>
+        <p>It seems you're not connected to the internet. Some features of the app will be limited until you're back online.</p>
+        <p>You can still view your previous conversations below.</p>
+    </div>
+    
+    <button class="retry-button" onclick="window.location.reload()">Retry Connection</button>
+    
+    <div class="history-container" id="historyContainer">
+        <h3>Previous Conversations</h3>
+        <div id="historyItems">
+            <!-- History items will be loaded here -->
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Load history from localStorage
+            try {
+                const history = JSON.parse(localStorage.getItem('voiceHistory') || '[]');
+                const historyItemsContainer = document.getElementById('historyItems');
+                
+                if (history.length === 0) {
+                    historyItemsContainer.innerHTML = '<p>No previous conversations found.</p>';
+                    return;
+                }
+                
+                // Sort by most recent first
+                history.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                
+                // Display history items
+                history.forEach(item => {
+                    const date = new Date(item.timestamp);
+                    const formattedDate = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                    
+                    const historyItem = document.createElement('div');
+                    historyItem.className = 'history-item';
+                    historyItem.innerHTML = `
+                        <div class="history-timestamp">${formattedDate}</div>
+                        <div class="history-title">You said:</div>
+                        <div class="history-content">${item.transcription}</div>
+                        <div class="history-title">Claude responded:</div>
+                        <div class="history-content">${item.response}</div>
+                    `;
+                    
+                    historyItemsContainer.appendChild(historyItem);
+                });
+            } catch (err) {
+                console.error('Error loading history:', err);
+                document.getElementById('historyItems').innerHTML = 
+                    '<p>Could not load previous conversations.</p>';
+            }
+        });
+        
+        // Check if we're back online
+        window.addEventListener('online', () => {
+            window.location.href = '/';
+        });
+    </script>
+</body>
+</html>
