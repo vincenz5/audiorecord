@@ -172,10 +172,35 @@
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     
-                    mediaRecorder = new MediaRecorder(stream, {
-                        mimeType: 'audio/webm',
-                        audioBitsPerSecond: 128000
-                    });
+                    // Check for supported MIME types
+                    const mimeTypes = [
+                        'audio/webm',
+                        'audio/mp4',
+                        'audio/ogg',
+                        'audio/wav',
+                        ''  // Empty string means browser default
+                    ];
+                    
+                    let selectedMimeType = '';
+                    
+                    // Find the first supported MIME type
+                    for (const type of mimeTypes) {
+                        if (type === '' || MediaRecorder.isTypeSupported(type)) {
+                            selectedMimeType = type;
+                            break;
+                        }
+                    }
+                    
+                    // Create MediaRecorder with supported MIME type or default
+                    const options = selectedMimeType 
+                        ? { mimeType: selectedMimeType, audioBitsPerSecond: 128000 } 
+                        : { audioBitsPerSecond: 128000 };
+                        
+                    mediaRecorder = new MediaRecorder(stream, options);
+                    
+                    // Log the selected MIME type for debugging
+                    console.log('Selected MIME type:', mediaRecorder.mimeType);
+                    
                     audioChunks = [];
                     
                     mediaRecorder.addEventListener('dataavailable', event => {
@@ -183,7 +208,9 @@
                     });
                     
                     mediaRecorder.addEventListener('stop', () => {
-                        audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        // Determine the correct content type based on mediaRecorder.mimeType
+                        const contentType = mediaRecorder.mimeType || 'audio/webm';
+                        audioBlob = new Blob(audioChunks, { type: contentType });
                         const audioUrl = URL.createObjectURL(audioBlob);
                         
                         // Create audio element
@@ -197,6 +224,11 @@
                         
                         // Set up download link
                         downloadLink.href = audioUrl;
+                        // Update download filename extension based on mime type
+                        const extension = contentType.includes('webm') ? 'webm' : 
+                                        contentType.includes('mp4') ? 'm4a' : 
+                                        contentType.includes('ogg') ? 'ogg' : 'wav';
+                        downloadLink.download = `recording.${extension}`;
                         downloadLink.style.display = 'inline-block';
                         
                         // Show send button
@@ -248,9 +280,20 @@
                     recordButton.disabled = true;
                     statusIndicator.textContent = 'Sending to server...';
                     
+                    // Determine the file extension based on the blob type
+                    const contentType = blob.type;
+                    const extension = contentType.includes('webm') ? 'webm' : 
+                                    contentType.includes('mp4') ? 'm4a' : 
+                                    contentType.includes('ogg') ? 'ogg' : 'wav';
+                    
                     // Create FormData object to send the file
                     const formData = new FormData();
-                    formData.append('audio', blob, 'recording.wav');
+                    formData.append('audio', blob, `recording.${extension}`);
+                    formData.append('audioFormat', extension); // Pass format info to server
+                    
+                    // Add debugging info to help troubleshoot
+                    console.log('Sending audio format:', extension);
+                    console.log('Content type:', contentType);
                     
                     // Send the audio file to the server
                     const response = await fetch('https://claude.vbuhler.com/api/transcribe', {
