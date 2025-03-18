@@ -33,8 +33,7 @@
             padding: 20px;
             text-align: center;
         }
-        #recordButton {
-            background-color: #4CAF50;
+        .control-button {
             border: none;
             color: white;
             padding: 15px 32px;
@@ -42,26 +41,27 @@
             text-decoration: none;
             display: inline-block;
             font-size: 16px;
-            margin: 20px 0;
+            margin: 10px 5px;
             cursor: pointer;
             border-radius: 8px;
             transition: background-color 0.3s;
+            min-width: 160px;
+        }
+        #recordButton {
+            background-color: #4CAF50;
         }
         #recordButton.recording {
             background-color: #f44336;
         }
+        #pauseButton {
+            background-color: #FF9800;
+            display: none;
+        }
+        #pauseButton.paused {
+            background-color: #2196F3;
+        }
         #sendButton {
             background-color: #008CBA;
-            border: none;
-            color: white;
-            padding: 15px 32px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 16px;
-            margin: 20px 0;
-            cursor: pointer;
-            border-radius: 8px;
             display: none;
         }
         #audioContainer {
@@ -81,6 +81,12 @@
             color: #666;
             font-style: italic;
             margin-bottom: 10px;
+        }
+        #recordingTimer {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 10px 0;
+            display: none;
         }
         #loadingIndicator {
             display: none;
@@ -148,21 +154,33 @@
             border-radius: 5px;
             text-align: center;
         }
+        .button-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
         /* Responsive improvements for mobile */
         @media (max-width: 480px) {
             body {
                 padding: 10px;
             }
-            #recordButton, #sendButton {
+            .control-button {
                 width: 100%;
                 max-width: 280px;
+                margin: 5px auto;
+                padding: 12px 24px;
+            }
+            .button-container {
+                flex-direction: column;
             }
         }
     </style>
 </head>
 <body>
     <h1>Voice Recorder with Claude</h1>
-    <p>Click the button below to start/stop recording your voice</p>
+    <p>Record, pause, and continue your voice recording</p>
     
     <div id="offlineAlert">
         You're currently offline. Some features may be limited.
@@ -175,8 +193,13 @@
     
     <div id="statusIndicator"></div>
     
-    <button id="recordButton">Start Recording</button>
-    <button id="sendButton">Send to Claude</button>
+    <div id="recordingTimer">00:00</div>
+    
+    <div class="button-container">
+        <button id="recordButton" class="control-button">Start Recording</button>
+        <button id="pauseButton" class="control-button">Pause</button>
+        <button id="sendButton" class="control-button">Send to Claude</button>
+    </div>
     
     <div id="audioContainer"></div>
     
@@ -218,20 +241,14 @@
         const installButton = document.getElementById('installButton');
         
         window.addEventListener('beforeinstallprompt', (e) => {
-            // Prevent Chrome 67 and earlier from automatically showing the prompt
             e.preventDefault();
-            // Stash the event so it can be triggered later
             deferredPrompt = e;
-            // Update UI to notify the user they can add to home screen
             installPrompt.style.display = 'block';
         });
         
         installButton.addEventListener('click', () => {
-            // Hide the app provided install promotion
             installPrompt.style.display = 'none';
-            // Show the install prompt
             deferredPrompt.prompt();
-            // Wait for the user to respond to the prompt
             deferredPrompt.userChoice.then((choiceResult) => {
                 if (choiceResult.outcome === 'accepted') {
                     console.log('User accepted the install prompt');
@@ -249,7 +266,6 @@
             const isOnline = navigator.onLine;
             offlineAlert.style.display = isOnline ? 'none' : 'block';
             
-            // Disable/enable send button when offline/online
             if (!isOnline) {
                 const sendButton = document.getElementById('sendButton');
                 if (sendButton) {
@@ -261,10 +277,11 @@
         
         window.addEventListener('online', updateOnlineStatus);
         window.addEventListener('offline', updateOnlineStatus);
-        updateOnlineStatus(); // Initial check
+        updateOnlineStatus();
         
         document.addEventListener('DOMContentLoaded', () => {
             const recordButton = document.getElementById('recordButton');
+            const pauseButton = document.getElementById('pauseButton');
             const sendButton = document.getElementById('sendButton');
             const audioContainer = document.getElementById('audioContainer');
             const downloadLink = document.getElementById('downloadLink');
@@ -273,11 +290,17 @@
             const responseContainer = document.getElementById('responseContainer');
             const transcriptionElement = document.getElementById('transcription');
             const claudeResponseElement = document.getElementById('claudeResponse');
+            const recordingTimer = document.getElementById('recordingTimer');
             
             let mediaRecorder;
             let audioChunks = [];
             let audioBlob;
             let isRecording = false;
+            let isPaused = false;
+            let recordingStream = null;
+            let startTime = 0;
+            let elapsedTime = 0;
+            let timerInterval = null;
             
             // Check if browser supports getUserMedia
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -289,17 +312,35 @@
             // Check for URL query parameters (for PWA shortcuts)
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('action') === 'record' && !isRecording) {
-                // Auto start recording if coming from a shortcut
                 setTimeout(() => {
                     startRecording();
-                }, 500); // Small delay to ensure everything is loaded
+                }, 500);
+            }
+            
+            // Timer function to display recording duration
+            function updateTimer() {
+                const now = Date.now();
+                const totalTime = elapsedTime + (isPaused ? 0 : (now - startTime));
+                
+                const seconds = Math.floor((totalTime / 1000) % 60).toString().padStart(2, '0');
+                const minutes = Math.floor((totalTime / 1000 / 60) % 60).toString().padStart(2, '0');
+                
+                recordingTimer.textContent = `${minutes}:${seconds}`;
             }
             
             recordButton.addEventListener('click', () => {
-                if (isRecording) {
+                if (isRecording && !isPaused) {
                     stopRecording();
                 } else {
                     startRecording();
+                }
+            });
+            
+            pauseButton.addEventListener('click', () => {
+                if (isPaused) {
+                    resumeRecording();
+                } else {
+                    pauseRecording();
                 }
             });
             
@@ -314,6 +355,7 @@
             async function startRecording() {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    recordingStream = stream;
                     
                     // Check for supported MIME types
                     const mimeTypes = [
@@ -344,53 +386,47 @@
                     // Log the selected MIME type for debugging
                     console.log('Selected MIME type:', mediaRecorder.mimeType);
                     
-                    audioChunks = [];
+                    // Reset audio chunks if starting a new recording
+                    if (!isPaused) {
+                        audioChunks = [];
+                        elapsedTime = 0;
+                    }
                     
                     mediaRecorder.addEventListener('dataavailable', event => {
                         audioChunks.push(event.data);
                     });
                     
                     mediaRecorder.addEventListener('stop', () => {
-                        // Determine the correct content type based on mediaRecorder.mimeType
-                        const contentType = mediaRecorder.mimeType || 'audio/webm';
-                        audioBlob = new Blob(audioChunks, { type: contentType });
-                        const audioUrl = URL.createObjectURL(audioBlob);
-                        
-                        // Create audio element
-                        const audioElement = document.createElement('audio');
-                        audioElement.src = audioUrl;
-                        audioElement.controls = true;
-                        
-                        // Clear previous audio
-                        audioContainer.innerHTML = '';
-                        audioContainer.appendChild(audioElement);
-                        
-                        // Set up download link
-                        downloadLink.href = audioUrl;
-                        // Update download filename extension based on mime type
-                        const extension = contentType.includes('webm') ? 'webm' : 
-                                        contentType.includes('mp4') ? 'm4a' : 
-                                        contentType.includes('ogg') ? 'ogg' : 'wav';
-                        downloadLink.download = `recording.${extension}`;
-                        downloadLink.style.display = 'inline-block';
-                        
-                        // Show send button
-                        sendButton.style.display = 'inline-block';
-                        
-                        // Close the stream tracks
-                        stream.getTracks().forEach(track => track.stop());
+                        processRecording();
                     });
                     
+                    // Start recording
                     mediaRecorder.start();
                     isRecording = true;
+                    isPaused = false;
+                    
+                    // Update UI
                     recordButton.textContent = 'Stop Recording';
                     recordButton.classList.add('recording');
+                    pauseButton.style.display = 'inline-block';
+                    pauseButton.textContent = 'Pause';
+                    pauseButton.classList.remove('paused');
                     statusIndicator.textContent = 'Recording...';
                     
+                    // Start timer
+                    startTime = Date.now();
+                    recordingTimer.style.display = 'block';
+                    clearInterval(timerInterval);
+                    timerInterval = setInterval(updateTimer, 1000);
+                    updateTimer(); // Initial update
+                    
                     // Hide elements when starting a new recording
-                    sendButton.style.display = 'none';
-                    downloadLink.style.display = 'none';
-                    responseContainer.style.display = 'none';
+                    if (!isPaused) {
+                        sendButton.style.display = 'none';
+                        downloadLink.style.display = 'none';
+                        responseContainer.style.display = 'none';
+                        audioContainer.innerHTML = '';
+                    }
                     
                 } catch (error) {
                     console.error('Error accessing microphone:', error);
@@ -405,14 +441,93 @@
                 }
             }
             
+            function pauseRecording() {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.pause();
+                    isPaused = true;
+                    
+                    // Update UI
+                    pauseButton.textContent = 'Resume';
+                    pauseButton.classList.add('paused');
+                    statusIndicator.textContent = 'Recording paused';
+                    
+                    // Update timer
+                    elapsedTime += Date.now() - startTime;
+                    clearInterval(timerInterval);
+                }
+            }
+            
+            function resumeRecording() {
+                if (mediaRecorder && mediaRecorder.state === 'paused') {
+                    mediaRecorder.resume();
+                    isPaused = false;
+                    
+                    // Update UI
+                    pauseButton.textContent = 'Pause';
+                    pauseButton.classList.remove('paused');
+                    statusIndicator.textContent = 'Recording...';
+                    
+                    // Restart timer
+                    startTime = Date.now();
+                    timerInterval = setInterval(updateTimer, 1000);
+                }
+            }
+            
             function stopRecording() {
-                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                if (mediaRecorder && (mediaRecorder.state === 'recording' || mediaRecorder.state === 'paused')) {
                     mediaRecorder.stop();
+                    
+                    // Stop all tracks on the stream
+                    if (recordingStream) {
+                        recordingStream.getTracks().forEach(track => track.stop());
+                        recordingStream = null;
+                    }
+                    
+                    // Update UI
                     isRecording = false;
+                    isPaused = false;
                     recordButton.textContent = 'Start Recording';
                     recordButton.classList.remove('recording');
+                    pauseButton.style.display = 'none';
                     statusIndicator.textContent = 'Recording stopped';
+                    
+                    // Stop timer
+                    elapsedTime += Date.now() - startTime;
+                    clearInterval(timerInterval);
+                    
+                    // Final timer update
+                    updateTimer();
                 }
+            }
+            
+            function processRecording() {
+                // Determine the correct content type based on mediaRecorder.mimeType
+                const contentType = mediaRecorder.mimeType || 'audio/webm';
+                audioBlob = new Blob(audioChunks, { type: contentType });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                
+                // Create audio element
+                const audioElement = document.createElement('audio');
+                audioElement.src = audioUrl;
+                audioElement.controls = true;
+                
+                // Clear previous audio
+                audioContainer.innerHTML = '';
+                audioContainer.appendChild(audioElement);
+                
+                // Set up download link
+                downloadLink.href = audioUrl;
+                // Update download filename extension based on mime type
+                const extension = contentType.includes('webm') ? 'webm' : 
+                                contentType.includes('mp4') ? 'm4a' : 
+                                contentType.includes('ogg') ? 'ogg' : 'wav';
+                downloadLink.download = `recording.${extension}`;
+                downloadLink.style.display = 'inline-block';
+                
+                // Show send button
+                sendButton.style.display = 'inline-block';
+                
+                console.log(`Recording processed: ${(audioBlob.size / 1024).toFixed(2)} KB, ${(elapsedTime / 1000).toFixed(1)} seconds`);
             }
             
             async function sendToServer(blob) {
@@ -427,6 +542,7 @@
                     loadingIndicator.style.display = 'block';
                     sendButton.disabled = true;
                     recordButton.disabled = true;
+                    pauseButton.style.display = 'none';
                     statusIndicator.textContent = 'Sending to server...';
                     
                     // Determine the file extension based on the blob type
