@@ -4,6 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice Recorder with Claude</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#4CAF50">
+    <meta name="description" content="Record voice messages and get responses from Claude AI">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Voice Claude">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Apple Touch Icons -->
+    <link rel="apple-touch-icon" href="/icons/icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="/icons/icon-152x152.png">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-72x72.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-72x72.png">
+    
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -97,11 +118,60 @@
             animation: spin 1s linear infinite;
             margin: 0 auto;
         }
+        #installPrompt {
+            display: none;
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            text-align: center;
+        }
+        #installButton {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 5px 0;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        #offlineAlert {
+            display: none;
+            background-color: #ffcc00;
+            color: #333;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            text-align: center;
+        }
+        /* Responsive improvements for mobile */
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            #recordButton, #sendButton {
+                width: 100%;
+                max-width: 280px;
+            }
+        }
     </style>
 </head>
 <body>
     <h1>Voice Recorder with Claude</h1>
     <p>Click the button below to start/stop recording your voice</p>
+    
+    <div id="offlineAlert">
+        You're currently offline. Some features may be limited.
+    </div>
+    
+    <div id="installPrompt">
+        Add this app to your home screen for a better experience!
+        <button id="installButton">Install App</button>
+    </div>
     
     <div id="statusIndicator"></div>
     
@@ -129,6 +199,70 @@
     </div>
 
     <script>
+        // Register service worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('ServiceWorker registration failed: ', error);
+                    });
+            });
+        }
+        
+        // Handle PWA installation
+        let deferredPrompt;
+        const installPrompt = document.getElementById('installPrompt');
+        const installButton = document.getElementById('installButton');
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // Prevent Chrome 67 and earlier from automatically showing the prompt
+            e.preventDefault();
+            // Stash the event so it can be triggered later
+            deferredPrompt = e;
+            // Update UI to notify the user they can add to home screen
+            installPrompt.style.display = 'block';
+        });
+        
+        installButton.addEventListener('click', () => {
+            // Hide the app provided install promotion
+            installPrompt.style.display = 'none';
+            // Show the install prompt
+            deferredPrompt.prompt();
+            // Wait for the user to respond to the prompt
+            deferredPrompt.userChoice.then((choiceResult) => {
+                if (choiceResult.outcome === 'accepted') {
+                    console.log('User accepted the install prompt');
+                } else {
+                    console.log('User dismissed the install prompt');
+                }
+                deferredPrompt = null;
+            });
+        });
+        
+        // Online/offline detection
+        const offlineAlert = document.getElementById('offlineAlert');
+        
+        function updateOnlineStatus() {
+            const isOnline = navigator.onLine;
+            offlineAlert.style.display = isOnline ? 'none' : 'block';
+            
+            // Disable/enable send button when offline/online
+            if (!isOnline) {
+                const sendButton = document.getElementById('sendButton');
+                if (sendButton) {
+                    sendButton.disabled = true;
+                    sendButton.title = 'You are offline. Cannot send recording.';
+                }
+            }
+        }
+        
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        updateOnlineStatus(); // Initial check
+        
         document.addEventListener('DOMContentLoaded', () => {
             const recordButton = document.getElementById('recordButton');
             const sendButton = document.getElementById('sendButton');
@@ -150,6 +284,15 @@
                 statusIndicator.textContent = 'Audio recording is not supported in this browser';
                 recordButton.disabled = true;
                 return;
+            }
+            
+            // Check for URL query parameters (for PWA shortcuts)
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('action') === 'record' && !isRecording) {
+                // Auto start recording if coming from a shortcut
+                setTimeout(() => {
+                    startRecording();
+                }, 500); // Small delay to ensure everything is loaded
             }
             
             recordButton.addEventListener('click', () => {
@@ -273,6 +416,12 @@
             }
             
             async function sendToServer(blob) {
+                // Return early if offline
+                if (!navigator.onLine) {
+                    statusIndicator.textContent = 'You are offline. Cannot send recording.';
+                    return;
+                }
+                
                 try {
                     // Show loading indicator
                     loadingIndicator.style.display = 'block';
@@ -307,6 +456,23 @@
                     }
                     
                     const data = await response.json();
+                    
+                    // Store in localStorage for offline access
+                    try {
+                        const history = JSON.parse(localStorage.getItem('voiceHistory') || '[]');
+                        history.push({
+                            timestamp: new Date().toISOString(),
+                            transcription: data.transcription,
+                            response: data.response
+                        });
+                        // Keep only the 10 most recent interactions
+                        if (history.length > 10) {
+                            history.shift();
+                        }
+                        localStorage.setItem('voiceHistory', JSON.stringify(history));
+                    } catch (err) {
+                        console.error('Error saving to localStorage:', err);
+                    }
                     
                     // Display the transcription and Claude's response
                     transcriptionElement.textContent = data.transcription;
